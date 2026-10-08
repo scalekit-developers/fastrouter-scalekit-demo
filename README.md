@@ -5,6 +5,8 @@ A small TypeScript CLI that proves the integration pattern we want:
 - **FastRouter** handles the LLM call through its OpenAI-compatible chat completions API.
 - **Scalekit AgentKit** handles OAuth, connected accounts, scoped tool discovery, and tool execution.
 
+Scalekit provides auth and actions on behalf of users, with 500+ connectors and 20,000+ tools.
+
 This sample keeps the use case intentionally small. By default it uses a single AgentKit connection such as `gmail`, lets the model choose from that connection's scoped tools, executes those tools through Scalekit, and feeds the tool results back into FastRouter until the model returns a final answer.
 
 ## What this proves
