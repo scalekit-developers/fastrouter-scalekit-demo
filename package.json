@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@scalekit-inc/cli": "^0.3.12",
     "@scalekit-sdk/node": "2.5.1",
     "dotenv": "^16.0.0",
     "openai": "^4.0.0"

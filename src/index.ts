@@ -1,8 +1,8 @@
 import 'dotenv/config';
+import http from 'http';
 import { ScalekitClient } from '@scalekit-sdk/node';
 import { ConnectorStatus } from '@scalekit-sdk/node/lib/pkg/grpc/scalekit/v1/connected_accounts/connected_accounts_pb.js';
 import OpenAI from 'openai';
-import * as readline from 'readline';
 
 const env = {
   SCALEKIT_ENVIRONMENT_URL: mustGetEnv('SCALEKIT_ENVIRONMENT_URL'),
@@ -12,7 +12,7 @@ const env = {
   SCALEKIT_IDENTIFIER: process.env.SCALEKIT_IDENTIFIER || 'user_123',
   FASTROUTER_API_KEY: mustGetEnv('FASTROUTER_API_KEY'),
   FASTROUTER_BASE_URL: process.env.FASTROUTER_BASE_URL || 'https://api.fastrouter.ai/api/v1',
-  FASTROUTER_MODEL: process.env.FASTROUTER_MODEL || 'openai/gpt-4o',
+  FASTROUTER_MODEL: process.env.FASTROUTER_MODEL || 'openai/gpt-4o-mini',
   USER_PROMPT: process.env.USER_PROMPT || 'Fetch my last 5 unread emails and summarize them.',
 };
 
@@ -112,10 +112,29 @@ async function main() {
   throw new Error(`Exceeded ${MAX_TURNS} turns without a final answer`);
 }
 
+async function waitForCallback(port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url ?? '/', `http://localhost:${port}`);
+      const authRequestId = url.searchParams.get('auth_request_id');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body><h2>Authorization complete — return to your terminal.</h2></body></html>');
+      server.close();
+      if (authRequestId) resolve(authRequestId);
+      else reject(new Error('No auth_request_id in callback'));
+    });
+    server.listen(port, () => {});
+  });
+}
+
 async function ensureConnectedAccount() {
+  const callbackPort = 3000;
+  const userVerifyUrl = `http://localhost:${callbackPort}/callback`;
+
   const { connectedAccount } = await scalekit.actions.getOrCreateConnectedAccount({
     connectionName: env.SCALEKIT_CONNECTION_NAME,
     identifier: env.SCALEKIT_IDENTIFIER,
+    userVerifyUrl,
   });
 
   if (connectedAccount?.status === ConnectorStatus.ACTIVE) {
@@ -126,15 +145,20 @@ async function ensureConnectedAccount() {
   const { link } = await scalekit.actions.getAuthorizationLink({
     connectionName: env.SCALEKIT_CONNECTION_NAME,
     identifier: env.SCALEKIT_IDENTIFIER,
+    userVerifyUrl,
   });
 
   console.log('Authorization required.');
   console.log(`Open this link and complete the flow:\n\n${link}\n`);
-  await waitForEnter('Press Enter after authorization is complete... ');
+  console.log('Waiting for callback on http://localhost:3000/callback ...\n');
+
+  const authRequestId = await waitForCallback(callbackPort);
+  await scalekit.actions.verifyConnectedAccountUser({ authRequestId, identifier: env.SCALEKIT_IDENTIFIER });
 
   const check = await scalekit.actions.getOrCreateConnectedAccount({
     connectionName: env.SCALEKIT_CONNECTION_NAME,
     identifier: env.SCALEKIT_IDENTIFIER,
+    userVerifyUrl,
   });
 
   if (check.connectedAccount?.status !== ConnectorStatus.ACTIVE) {
@@ -179,15 +203,6 @@ function safeParseJson(value: string): Record<string, unknown> {
   }
 }
 
-async function waitForEnter(promptText: string): Promise<void> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  await new Promise<void>((resolve) => {
-    rl.question(promptText, () => {
-      rl.close();
-      resolve();
-    });
-  });
-}
 
 main().catch((error) => {
   console.error('\nError:\n');
